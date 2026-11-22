@@ -3,9 +3,20 @@ import { supabaseAdmin } from "./supabase";
 
 const ACTIVE_STATUSES = ["active", "trialing"];
 
-// Záchrana, když nedorazí (nebo selže) webhook: stav předplatného dotáhne přímo ze Stripe.
-// Vrací true, když je předplatné aktivní. Volá se po návratu z checkoutu, ne při každém načtení.
-export async function reconcileSubscription(userId: string, email?: string | null): Promise<boolean> {
+/**
+ * Záchrana, když nedorazí (nebo selže) webhook: stav předplatného dotáhne přímo ze Stripe.
+ * Vrací true, když je předplatné aktivní.
+ *
+ * `lookupByEmail` dohledá zákazníka podle e-mailu, když ho ještě nemáme v databázi —
+ * to má smysl jen při návratu z checkoutu. Jinak by každé otevření profilu neplatícím
+ * uživatelem znamenalo dotaz do Stripe.
+ */
+export async function reconcileSubscription(
+  userId: string,
+  email?: string | null,
+  options: { lookupByEmail?: boolean } = {}
+): Promise<boolean> {
+  const { lookupByEmail = true } = options;
   const admin = supabaseAdmin();
   const { data: row } = await admin
     .from("subscriptions")
@@ -14,7 +25,7 @@ export async function reconcileSubscription(userId: string, email?: string | nul
     .maybeSingle();
 
   let customerId: string | undefined = row?.stripe_customer_id ?? undefined;
-  if (!customerId && email) {
+  if (!customerId && lookupByEmail && email) {
     const found = await stripe.customers.list({ email, limit: 1 });
     customerId = found.data[0]?.id;
   }

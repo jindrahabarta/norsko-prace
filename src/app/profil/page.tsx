@@ -25,10 +25,16 @@ export default async function ProfilPage({ searchParams }: { searchParams: Promi
     .single();
 
   let ent = await getEntitlement(user.id);
-  // Po návratu z platby ještě nemusel dorazit webhook → dotáhni stav přímo ze Stripe
-  if (checkout === "success" && !ent.active) {
+  // Stav ze Stripe dotáhneme vždy, když uživatel nemá aktivní nárok — nejen po návratu
+  // z platby. Když webhook selže nebo se nedoručí, platící zákazník by jinak zůstal bez
+  // přístupu, dokud by nepřišel přes checkout. Zákazníka podle e-mailu hledáme jen při
+  // návratu z platby, jinak by každé načtení profilu znamenalo dotaz do Stripe.
+  if (!ent.active) {
     try {
-      if (await reconcileSubscription(user.id, user.email)) ent = await getEntitlement(user.id);
+      const fromCheckout = checkout === "success";
+      if (await reconcileSubscription(user.id, user.email, { lookupByEmail: fromCheckout })) {
+        ent = await getEntitlement(user.id);
+      }
     } catch (err) {
       console.error("reconcileSubscription:", err instanceof Error ? err.message : err);
     }
