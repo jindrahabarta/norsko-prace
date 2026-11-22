@@ -57,3 +57,56 @@ export async function reconcileSubscription(
 
   return ACTIVE_STATUSES.includes(sub.status);
 }
+
+/**
+ * Srovná všechna předplatná se Stripe — zdrojem pravdy je Stripe, ne naše tabulka.
+ *
+ * Běží z cronu, takže stav dohoní i tehdy, když se webhook nedoručí: obnovení,
+ * zrušení i platbu, která prošla až na druhý pokus (tam zákazník přes stránku
+ * s potvrzením vůbec neprojde).
+ */
+export async function reconcileAllSubscriptions(): Promise<{
+  checked: number;
+  updated: number;
+  unmatched: number;
+}> {
+  const admin = supabaseAdmin();
+  let checked = 0;
+  let updated = 0;
+  let unmatched = 0;
+
+  for await (const sub of stripe.subscriptions.list({ status: "all", limit: 100 })) {
+    checked += 1;
+
+    const priceId = sub.items.data[0]?.price?.id ?? "";
+    const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+    const item = sub.items.data[0] as unknown as { current_period_end?: number } | undefined;
+    const periodEnd =
+      item?.current_period_end ?? (sub as unknown as { current_period_end?: number }).current_period_end;
+
+    const row = {
+      status: sub.status,
+      tier: priceIdToTier(priceId),
+      price_id: priceId,
+      stripe_subscription_id: sub.id,
+      stripe_customer_id: customerId,
+      current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+      cancel_at_period_end: sub.cancel_at_period_end,
+      updated_at: new Date().toISOString(),
+    };
+
+    const userId = sub.metadata?.user_id;
+    const { error } = userId
+      ? await admin.from("subscriptions").upsert({ user_id: userId, ...row }, { onConflict: "user_id" })
+      : await admin.from("subscriptions").update(row).eq("stripe_customer_id", customerId);
+
+    if (error) {
+      console.error(`reconcileAll ${sub.id}:`, error.message);
+      unmatched += 1;
+    } else {
+      updated += 1;
+    }
+  }
+
+  return { checked, updated, unmatched };
+}
