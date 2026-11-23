@@ -13,6 +13,7 @@ import {
   SEASONAL_ENGAGEMENT_TYPES,
   PERMANENT_ENGAGEMENT_TYPES,
   hasBlockedTitle,
+  isBlockedEmployer,
 } from "./job-filter";
 import { tradeForCategories, type TradeSlug } from "./trades";
 
@@ -132,6 +133,9 @@ export function isSeasonalJob(vacancy: NavVacancy): boolean {
   const ad = vacancy.ad_content;
   if (!ad) return false;
 
+  // 0. Zaměstnavatel si vyžádal odstranění ze webu
+  if (isBlockedEmployer(ad.employer?.name)) return false;
+
   // 1. Lokace — pouze Norsko
   const locations = ad.workLocations ?? [];
   const isInNorway =
@@ -181,6 +185,8 @@ function passesBaseChecks(vacancy: NavVacancy): boolean {
       (l) => !l.country || l.country.toUpperCase() === "NORGE" || l.country.toUpperCase() === "NORWAY"
     );
   if (!isInNorway) return false;
+
+  if (isBlockedEmployer(ad.employer?.name)) return false;
 
   const blocked = (ad.occupationCategories ?? []).some(
     (cat) =>

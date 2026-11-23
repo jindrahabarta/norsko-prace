@@ -130,3 +130,22 @@ export function isAllowedCategory(categoryLevel1: string | null | undefined): bo
   if (!categoryLevel1) return false;
   return ALLOWED_OCCUPATION_CATEGORIES.has(categoryLevel1);
 }
+
+/**
+ * Zaměstnavatelé, kteří si vyžádali odstranění ze webu.
+ *
+ * Inzerát v NAV feedu zůstává, takže deaktivace řádku v databázi nestačí —
+ * další synchronizace by ho vrátila. Filtrujeme proto podle názvu firmy už
+ * při čtení feedu, a to u sezónních i stálých pozic.
+ *
+ * Porovnává se název z NAV (`employer.name`) bez ohledu na velikost písmen
+ * a okolní mezery. Při přidávání opiš název přesně tak, jak je ve feedu.
+ */
+const BLOCKED_EMPLOYERS = new Set([
+  "spiterstulen turisthytte", // žádost e-mailem 23. 11. 2026
+]);
+
+export function isBlockedEmployer(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return BLOCKED_EMPLOYERS.has(name.trim().toLowerCase());
+}
